@@ -1,6 +1,31 @@
-
-
 # CKA Curriculum Part 1 - Scheduling
+
+- [CKA Curriculum Part 1 - Scheduling](#cka-curriculum-part-1---scheduling)
+  - [Use labelselectors to schedule Pods](#use-labelselectors-to-schedule-pods)
+    - [No Scheduler](#no-scheduler)
+  - [Taints and Tolerations](#taints-and-tolerations)
+    - [Taints](#taints)
+    - [Tolerations](#tolerations)
+  - [Node Affinity](#node-affinity)
+  - [Resource requirements and limits](#resource-requirements-and-limits)
+    - [Default request and limits](#default-request-and-limits)
+    - [Requests](#requests)
+    - [Limits](#limits)
+    - [Example](#example)
+  - [Understand the role of DaemonSets](#understand-the-role-of-daemonsets)
+  - [Static Pods](#static-pods)
+  - [Understand how to run multiple schedulers and how to configure Pods to use them](#understand-how-to-run-multiple-schedulers-and-how-to-configure-pods-to-use-them)
+    - [Deploy and additional scheduler](#deploy-and-additional-scheduler)
+      - [Scheduler running as a service](#scheduler-running-as-a-service)
+      - [Scheduler running as a POD](#scheduler-running-as-a-pod)
+    - [View schedulers](#view-schedulers)
+    - [Define which scheduler to use](#define-which-scheduler-to-use)
+    - [Display scheduler events](#display-scheduler-events)
+      - [For schedulers running as a pod](#for-schedulers-running-as-a-pod)
+      - [For schedulers running locally on a node](#for-schedulers-running-locally-on-a-node)
+  - [Understand how resource limits can affect Pod scheduling](#understand-how-resource-limits-can-affect-pod-scheduling)
+    - [Minimum / Maximum Constraints](#minimum--maximum-constraints)
+    - [Quotas](#quotas)
 
 ## Use labelselectors to schedule Pods
 
