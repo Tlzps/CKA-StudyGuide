@@ -9,15 +9,15 @@ Labels are key/value pairs that are applied to objects in Kubernetes, such as po
 *   Application Environment
     *   Environment=Prod, Environment=Test, Environment=Dev
 *   Tier
-    *   Tier=Web, Tier=App, Tier=DB
+    *   tier=web, tier=app, tier=db
 *   Distinguish nodes, or a collection of nodes based on location
-    *   Location=GB, Location=GER
+    *   location=GB, location=GER
 *   Distinguish nodes based on features
     *   CPU=AMD, CPU=Intel
 
 The example below labels a pod as belonging in the Dev environment, App Tier
 
-```
+```yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -57,7 +57,7 @@ k8s-worker-03   Ready    <none>   11d   v1.14.1   CPU=AMD
 
 Specify in a pod manifest to run on a node with an appropriate label
 
-```
+```yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -101,7 +101,7 @@ Node names in cloud environments are not always predictable or stable.
 
 Here is an example of a pod config file using the `nodeName` field:
 
-```
+```yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -115,7 +115,7 @@ spec:
 
 ## Taints and Tolerations
 
-Taint a node
+### Taints
 
 ```
 # Places a taint on node node1. The taint has key key, value value, and taint effect NoSchedule
@@ -127,9 +127,11 @@ kubectl taint nodes node1 key:NoSchedule-
 
 **NoSchedule**: No Pod will be able to schedule onto node1 unless it has a matching toleration
 
+### Tolerations
+
 You specify a toleration for a pod in the PodSpec. Both of the following tolerations “match” the taint created by the kubectl taint line above, and thus a pod with either toleration would be able to schedule onto node1
 
-```
+```yaml
 tolerations:
 - key: "key"
   operator: "Equal"
@@ -143,7 +145,8 @@ tolerations:
 ```
 
 Example for a Pod that uses tolerations
-```
+
+```yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -178,7 +181,7 @@ kubectl taint nodes node1 key2=value2:NoSchedule
 
 And a pod has two tolerations:
 
-```
+```yaml
 tolerations:
 - key: "key1"
   operator: "Equal"
@@ -194,7 +197,7 @@ In this case, the pod will not be able to schedule onto the node, because there 
 
 Normally, if a taint with effect NoExecute is added to a node, then any pods that do not tolerate the taint will be evicted immediately, and pods that do tolerate the taint will never be evicted. However, a toleration with NoExecute effect can specify an optional tolerationSeconds field that dictates how long the pod will stay bound to the node after the taint is added. For example,
 
-```
+```yaml
 tolerations:
 - key: "key1"
   operator: "Equal"
@@ -219,7 +222,7 @@ Node affinity is specified as field `nodeAffinity` of field `affinity` in the Po
 
 Here’s an example of a pod that uses node affinity:
 
-```
+```yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -263,7 +266,7 @@ If you remove or change the label of the node where the pod is scheduled, the po
 The `weight` field in `preferredDuringSchedulingIgnoredDuringExecution` is in the range 1-100. For each node that meets all of the scheduling requirements (resource request, RequiredDuringScheduling affinity expressions, etc.), the scheduler will compute a sum by iterating through the elements of this field and adding “weight” to the sum if the node matches the corresponding MatchExpressions. This score is then combined with the scores of other priority functions for the node. The node(s) with the highest total score are the most preferred.
 
 |                                                 | DuringScheduling | DuringExecution |
-|-------------------------------------------------|------------------|-----------------|
+| ----------------------------------------------- | ---------------- | --------------- |
 | requiredDuringSchedulingIgnoredDuringExecution  | Required         | Ignored         |
 | preferredDuringSchedulingIgnoredDuringExecution | Preferred        | Ignored         |
 | requiredDuringSchedulingRequiredDuringExecution | Required         | Required        |
@@ -271,7 +274,102 @@ The `weight` field in `preferredDuringSchedulingIgnoredDuringExecution` is in th
 
 ## Resource requirements and limits
 
+### Default request and limits
 
+If a container is created in a namespace with a default request/limit value and doesn’t explicitly define these in the manifest, it inherits these values from the namespace.
+
+ For the POD to pick up those defaults you must have first set those as default values for request and limit by creating a LimitRange in that namespace.
+
+ ```yaml
+ apiVersion: v1
+kind: LimitRange
+metadata:
+  name: mem-limit-range
+spec:
+  limits:
+  - default:
+      memory: 512Mi
+    defaultRequest:
+      memory: 256Mi
+    type: Container
+--- 
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: cpu-limit-range
+spec:
+  limits:
+  - default:
+      cpu: 1
+    defaultRequest:
+      cpu: 0.5
+    type: Container
+```
+
+### Requests 
+Kubernetes default requests:
+
+| Resource | Default requests |
+| -------- | :--------------: |
+| CPU      |       0.5        |
+| MEM      |      256Mi       |
+| DISK     |                  |
+
+Kubernetes search for nodes that has sufficient amount of resources to hold that container.
+
+When you specify the resource request for Containers in a Pod, the scheduler uses this information to decide which node to place the Pod on.
+
+### Limits
+
+Kubernetes default limits:
+
+| Resource | Default limits |
+| -------- | :------------: |
+| CPU      |      0.5       |
+| MEM      |     256Mi      |
+| DISK     |                |
+
+What happens if a limit is exceeded ?
+
+**Memory:** If you set a memory limit of 4GiB for that Container, the kubelet (and container runtime) enforce the limit. The runtime prevents the container from using more than the configured resource limit. For example: when a process in the container tries to consume more than the allowed amount of memory, the system kernel terminates the process that attempted the allocation, with an out of memory (OOM) error.
+
+**CPU** Kubernetes throttles so it cannont go beyond its limit
+
+### Example
+
+Here’s an example. The following Pod has two Containers. Each Container has a request of 0.25 cpu and 64MiB (226 bytes) of memory. Each Container has a limit of 0.5 cpu and 128MiB of memory. You can say the Pod has a request of 0.5 cpu and 128 MiB of memory, and a limit of 1 cpu and 256MiB of memory.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: frontend
+spec:
+  containers:
+  - name: db
+    image: mysql
+    env:
+    - name: MYSQL_ROOT_PASSWORD
+      value: "password"
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "250m"
+      limits:
+        memory: "128Mi"
+        cpu: "500m"
+  - name: wp
+    image: wordpress
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "250m"
+      limits:
+        memory: "128Mi"
+        cpu: "500m"
+``` 
+
+Note, if you define a container with a memory/CPU limit, but not a request, Kubernetes will define the limit the same as the request.
 
 ## Understand the role of DaemonSets 
 
@@ -354,6 +452,137 @@ ExecStart=/usr/bin/kubelet \
 
 Note you can also specify a url with the format `--manifest-url=[https://virtualthoughts.co.uk/somepod.yaml](https://virtualthoughts.co.uk/somepod.yaml)` should you wish to load a static pod from a URL.
 
+## Understand how to run multiple schedulers and how to configure Pods to use them
+
+Kubernetes comes with its own scheduler which acts as the default for all related actions. You can, however, define and implement your own to exist in parallel to the default scheduler, should you wish.
+
+The process is defined here [https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/](https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/)
+
+### Deploy and additional scheduler
+
+#### Scheduler running as a service
+
+```
+# wget https://storage.googleapis.com/kubernetes-release/release/v1.12.0/bin/linux/amd64/kube-scheduler
+
+# kube-scheduler.service
+ExecStart=/usr/local/bin/kube-scheduler \
+    --config=/etc/kubernetes/config/kube-scheduler.yaml \
+    --scheduler-name=default-scheduler
+
+# my-custom-scheduler.service
+ExecStart=/usr/local/bin/kube-scheduler \
+    --config=/etc/kubernetes/config/kube-scheduler.yaml \
+    --scheduler-name= my-custom-scheduler
+```
+
+#### Scheduler running as a POD
+
+```yaml
+# Default Kube Scheduler
+apiVersion: v1 kind: Pod metadata:
+name: kube-scheduler
+namespace: kube-system 
+spec:
+  containers: 
+  - command:
+    - kube-scheduler
+    - --address=127.0.0.1
+    - --kubeconfig=/etc/kubernetes/scheduler.conf 
+    - --leader-elect=true
+    image: k8s.gcr.io/kube-scheduler-amd64:v1.11.3 
+    name: kube-scheduler
+---
+# Custom Kube Scheduler
+apiVersion: v1 kind: Pod metadata:
+name: kube-scheduler
+namespace: kube-system 
+spec:
+  containers: 
+  - command:
+    - kube-scheduler
+    - --address=127.0.0.1
+    - --kubeconfig=/etc/kubernetes/scheduler.conf 
+    - --leader-elect=true
+    - --scheduler-name=my-custom-scheduler
+    # In case you have multiple master, add the option below to differenciate the custom scheduler for the default during the leader election process
+    - --lock-object-name=my-custom-scheduler
+    image: k8s.gcr.io/kube-scheduler-amd64:v1.11.3 
+    name: kube-scheduler
+```
+
+### View schedulers
+
+```
+kubectl get pods -n kube-system
+```
+
+### Define which scheduler to use
+
+
+As an example, a second custom scheduler has been implemented in a kubernetes cluster called “custom-scheduler”. In a pod manifest we can specify a scheduler to use, if different from the default under “spec”.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: busybox-sleep
+spec:
+  # Add field scheduler name
+  schedulerName: custom-scheduler
+  containers:
+  - name: busybox
+    image: busybox
+    args:
+    - sleep
+    - "1000000"
+```
+
+Execute a kubectl describe pod busybox-sleep to validate which scheduler is being used:
+
+![alt_text](https://i.imgur.com/ZqtQUz9.png "image_tooltip")
+
+**Note : to get familiar with the syntax, use “default-scheduler” in the manifest. This is the name for the scheduler that comes with Kubernetes**
+
+### Display scheduler events
+
+Viewing and assessing logs generated by schedulers provide a myriad of functions, including but not limited to - troubleshooting, performance monitoring, and various others. There are several ways to get scheduler events:
+
+```
+# List all events in the current namespace
+kubectl get events | grep scheduler
+```
+
+Note this will only work if you’re using the default scheduler (default-scheduler) or a customer scheduler with “scheduler” in the name. Replace accordingly or don’t pipe anything to grep to get a system wide set of events
+
+Shortly after performing an action, such as deploying a pod, you should see something in the logs resembling the following:
+
+Successfully assigned default/busybox-sleep to 632efcbf-8027-4711-b6f4-e0aea7db9ed3
+
+To acquire logs from the scheduler itself, one of two methods must be used, depending on how the scheduler is deployed.
+
+#### For schedulers running as a pod
+
+Locate the pod facilitating the scheduler:
+
+```
+kubectl get pods - kube-system
+```
+
+Inspect the logs accordingly:
+
+```
+kubectl logs [Name of pod] - kube-system
+```
+
+#### For schedulers running locally on a node
+
+Log onto the master node and cat / copy / open the following file:
+
+```
+/var/log/kube-scheduler.log
+```
+
 ## Understand how resource limits can affect Pod scheduling
 
 At a namespace level, we can define resource limits. This enables a restriction in resources, especially helpful in multi-tenancy environments and provides a mechanism to prevent pods from consuming more resources than necessary, which may have a detrimental effect on the environment as a whole.
@@ -365,12 +594,6 @@ Default memory / CPU **requests & limits **for a namespace
 Minimum and Maximum memory / CPU **constraints **for a namespace
 
 Memory/CPU **Quotas **for a namespace
-
-### Default Requests and Limits
-
-If a container is created in a namespace with a default request/limit value and doesn’t explicitly define these in the manifest, it inherits these values from the namespace
-
-Note, if you define a container with a memory/CPU limit, but not a request, Kubernetes will define the limit the same as the request.
 
 ### Minimum / Maximum Constraints
 
@@ -386,7 +609,7 @@ Create a namespace: kubectl create namespace tenant-mem-limited \
 
 Create a YAML manifest to limit resources:
 
-```
+```yaml
 apiVersion: v1
 kind: LimitRange
 metadata:
@@ -402,7 +625,7 @@ Apply this to the aforementioned namespace: `kubectl apply -f maxmem.yaml --name
 
 To create a pod with a memory request that exceeds the limit:
 
-```
+```yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -424,133 +647,3 @@ The Pod "too-much-memory" is invalid: spec.containers[0].resources.requests: Inv
 ```
 
 As we have defined the pod limit of the namespace to 250MiB, a request for 300MiB will fail.
-
-## Understand how to run multiple schedulers and how to configure Pods to use them</span>**
-
-Kubernetes comes with its own scheduler which acts as the default for all related actions. You can, however, define and implement your own to exist in parallel to the default scheduler, should you wish.
-
-This quite an advanced topic. It would be surprising if the exam asked the tester to create a new scheduler, but the process is defined [https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/](https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/)
-
-As an example, a second custom scheduler has been implemented in a kubernetes cluster called “custom-scheduler”. In a pod manifest we can specify a scheduler to use, if different from the default under “spec”.
-
-apiVersion: v1 \
-kind: Pod \
-metadata: \
-  name: busybox-sleep \
-spec:
-
-**  schedulerName: custom-scheduler** \
-  containers: \
-  - name: busybox \
-    image: busybox \
-    args: \
-    - sleep \
-    - "1000000"
-
-Execute a kubectl describe pod busybox-sleep to validate which scheduler is being used:
-
-![alt_text](https://i.imgur.com/ZqtQUz9.png "image_tooltip")
-
-**Note : to get familiar with the syntax, use “default-scheduler” in the manifest. This is the name for the scheduler that comes with Kubernetes**
-
-## Manually schedule a pod without a scheduler
-
-Pods that are created without a scheduler are otherwise known as _“static pods”_. Static pods are managed directly by kubelet daemon on a specific node, without the API server observing it. It does not have an associated replication controller, and kubelet daemon itself watches it and restarts it when it crashes. There is no health check. Static pods are always bound to one kubelet daemon and always run on the same node with it.<span style="text-decoration:underline;"> \
- \
-</span>There are two ways to create a static pod:
-
-1. From a directory
-2. From a URL
-
-Either method requires a modification to how the Kubelet functions on a given node. Because we’re not using a scheduler, the kublet daemon takes on the responsibility of creating the pods.
-
-### From a Directory or web address
-
-First, we create a directory on a specific node
-
-```
-mkdir /etc/staticpods
-```
-
-Next we place a pod manifest file into this directory. Below is an example from a previous exercise:
-
-```
-apiVersion: v1
-kind: Pod
-metadata:
-  name: busybox-sleep
-spec:
-  containers:
-  - name: busybox
-    image: busybox
-    args:
-    - sleep
-    - "1000000"
-```
-
-Next we run the kubelet service to reference this directory : --pod-manifest-path=/etc/staticpods
-
-
-
-## Display scheduler events
-
-Viewing and assessing logs generated by schedulers provide a myriad of functions, including but not limited to - troubleshooting, performance monitoring, and various others. There are several ways to get scheduler events:
-
-```
-kubectl get events | grep scheduler
-```
-
-Note this will only work if you’re using the default scheduler (default-scheduler) or a customer scheduler with “scheduler” in the name. Replace accordingly or don’t pipe anything to grep to get a system wide set of events
-
-Shortly after performing an action, such as deploying a pod, you should see something in the logs resembling the following:
-
-Successfully assigned default/busybox-sleep to 632efcbf-8027-4711-b6f4-e0aea7db9ed3
-
-To acquire logs from the scheduler itself, one of two methods must be used, depending on how the scheduler is deployed.
-
-### For schedulers running as a pod
-
-Locate the pod facilitating the scheduler:
-
-```
-kubectl get pods --namespace kube-system
-```
-
-Inspect the logs accordingly:
-
-```
-
-kubectl logs [Name of pod] --namespace kube-system
-```
-
-### For schedulers running locally on a node
-
-Log onto the master node and cat / copy / open the following file:
-
-```
-/var/log/kube-scheduler.log
-```
-
-## Know how to configure the Kubernetes Scheduler
-
-Kube-Scheduler has a number of flags which can influence its behavior: [https://kubernetes.io/docs/reference/command-line-tools-reference/kube-scheduler/](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-scheduler/)
-
-How the kubernetes cluster is constructed will influence how you modify kube-scheduler. But as an example for kubeadm installations a manifest file for kube-scheduler is located in `/etc/kubernetes/manifests` on the master node(s) as `kube-scheduler.yaml. `Add/modify the flags as appropriate:
-
-```
-apiVersion: v1
-kind: Pod
-metadata:
- creationTimestamp: null
- labels:
-   component: kube-scheduler
-   tier: control-plane
- name: kube-scheduler
- namespace: kube-system
-spec:
- containers:
- - command:
-   - kube-scheduler
-   - --bind-address=127.0.0.1
-   - --kubeconfig=/etc/kubernetes/scheduler.conf
-   - --leader-elect=true
