@@ -290,6 +290,8 @@ kubectl logs pi-vjk5m
 
 ### Config maps
 
+#### Create a configmap
+
 Configmaps are a way to decouple configuration from pod manifest file. Obviously, the first step is to create a config map before we can get pods to use them:
 
 ```
@@ -318,6 +320,34 @@ blog:
 virtualthoughts.co.uk
 ```
 
+You can also create a configmap from a file
+
+```
+kubectl create configmap <config-name> --from-file=<path-to-file>
+```
+
+#### Configmap in Pods
+
+#### ENV
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+ name: config-test-pod
+spec:
+ containers:
+ - name: test-container
+   image: busybox
+   command: [ "/bin/sh", "-c", "env" ]
+   envFrom:
+      - configMapRef:
+          name: vt-cm
+ restartPolicy: Never
+```
+
+#### SINGLE ENV
+
 To reference this config map in a pod, we declare it in the respective yaml:
 
 ```yaml
@@ -339,6 +369,7 @@ spec:
  restartPolicy: Never
 ```
 
+
 The pod above will output the environment variables, so we can validate it’s leveraged the config map by extracting the logs from the pod:
 
 ```
@@ -359,6 +390,15 @@ KUBERNETES_SERVICE_HOST=10.96.0.1
 PWD=/
 ```
 
+#### Volume
+
+```yaml
+volumes:
+- name: app-config-volume
+  configmap:
+    name: app-config
+```
+
 ### Secrets
 
 Secrets allow us to store and manage sensitive information pertaining to our applications, which can take the form of a variety of objects such as usernames, passwords, ssh keys and much more. Similarly to configmaps, secrets are designed to decouple this information directly from the pod declaration.
@@ -369,13 +409,49 @@ As part of a Kubernetes cluster stand up, secrets are already leveraged, and we 
 kubectl get secrets --all-namespaces
 ```
 
-An example to create one:
+#### Creating secrets
+
+##### Imperative way
 
 ```
 kubectl create secret generic my-secret --from-literal=username=dbu --from-literal=pass=dbp
 ```
 
-We leverage secrets in a very similar way to configmaps. (note as environment variables is one of a number of ways to leverage secrets)
+**generic** is important
+
+##### Declarative way
+
+Values must be encoded in base64 when using declarative way
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secret 
+data:
+  DB_Host: bXlzcWw=
+  DB_User: cm9vdA==
+  DB_Password: cGFzd3Jk
+```
+ 
+Encryption / Decryption commands
+
+```
+echo –n ‘root’ | base64
+echo –n ‘bXlzcWw=’ | base64 --decode
+```
+
+#### Using secrets
+
+##### ENV
+
+```
+envFrom:
+  - secretRef:
+      name: app-config
+```
+
+##### Single ENV
 
 ```yaml
 apiVersion: v1
@@ -418,7 +494,26 @@ KUBERNETES_SERVICE_HOST=10.96.0.1
 PWD=/
 ```
 
-### Environment Variables
+##### Volumes
+
+```yaml
+volumes:
+  - name: app-secret-volume
+    secret:
+      secretName: app-secret
+```
+
+When mounting secret as a volume, each attribute in the secret is created as a file with the value of the secret as its content.
+
+```
+> ls /opt/app-secret-volumes
+DB_Host DB_Password DB_User 
+---
+> cat /opt/app-secret-volumes/DB_Password
+paswrd
+```
+
+## Environment Variables
 
 For more simple, direct configuration we can manipulate the environment variables directly within the pod manifest:
 
@@ -474,7 +569,7 @@ kubectl scale deployment nginx-deployment --replicas 10
 
 ## Understand the primitives necessary to create a self-healing application
 
-Deployments facilitate this by employing a reconciliation loop to check the number of deployed pods matches what’s defined in the yaml file. Under the hood, deployments leverage ReplicaSets, which are primarily responsible for this feature. 
+Kubernetes supports self-healing applications through ReplicaSets and Replication Controllers. The replication controller helps in ensuring that a POD is re-created automatically when the application within the POD crashes. It helps in ensuring enough replicas of the application are running at all times.
 
 Stateful Sets are similar to deployments, for example they manage the deployment and scaling of a series of pods. However, in addition to deployments they also provide guarantees about the ordering and uniqueness of Pods. A StatefulSet maintains a sticky identity for each of their Pods. These pods are created from the same spec, but are not interchangeable: each has a persistent identifier that it maintains across any rescheduling.
 
@@ -507,4 +602,76 @@ spec:
        image: nginx:1.7.9
        ports:
        - containerPort: 80
+```
+
+## Multi container Pods
+
+```yaml
+apiVersion: v1 
+kind: Pod 
+metadata:
+  name: simple-webapp 
+  labels:
+    name: simple-webapp 
+spec:
+  containers:
+  - name: simple-webapp
+    image: simple-webapp 
+    ports:
+    - containerPort: 8080
+  - name: log-agent 
+    image: log-agent
+```
+
+## Init containers
+
+In a multi-container pod, each container is expected to run a process that stays alive as long as the POD's lifecycle. For example in the multi-container pod that we talked about earlier that has a web application and logging agent, both the containers are expected to stay alive at all times. The process running in the log agent container is expected to stay alive as long as the web application is running. If any of them fails, the POD restarts.
+
+But at times you may want to run a process that runs to completion in a container. For example a process that pulls a code or binary from a repository that will be used by the main web application. That is a task that will be run only  one time when the pod is first created. Or a process that waits  for an external service or database to be up before the actual application starts. That's where initContainers comes in.
+
+An initContainer is configured in a pod like all other containers, except that it is specified inside a initContainers section,  like this:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: myapp-pod
+  labels:
+    app: myapp
+spec:
+  containers:
+  - name: myapp-container
+    image: busybox:1.28
+    command: ['sh', '-c', 'echo The app is running! && sleep 3600']
+  initContainers:
+  - name: init-myservice
+    image: busybox
+    command: ['sh', '-c', 'git clone <some-repository-that-will-be-used-by-application> ; done;']
+```
+
+When a POD is first created the initContainer is run, and the process in the initContainer must run to a completion before the real container hosting the application starts. 
+
+You can configure multiple such initContainers as well, like how we did for multi-pod containers. In that case each init container is run one at a time in sequential order.
+
+If any of the initContainers fail to complete, Kubernetes restarts the Pod repeatedly until the Init Container succeeds.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: myapp-pod
+  labels:
+    app: myapp
+spec:
+  containers:
+  - name: myapp-container
+    image: busybox:1.28
+    command: ['sh', '-c', 'echo The app is running! && sleep 3600']
+  initContainers:
+  - name: init-myservice
+    image: busybox:1.28
+    command: ['sh', '-c', 'until nslookup myservice; do echo waiting for myservice; sleep 2; done;']
+  - name: init-mydb
+    image: busybox:1.28
+    command: ['sh', '-c', 'until nslookup mydb; do echo waiting for mydb; sleep 2; done;']
 ```

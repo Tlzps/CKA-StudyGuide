@@ -332,27 +332,12 @@ spec:
 ```
 
 ### Requests 
-Kubernetes default requests:
-
-| Resource | Default requests |
-| -------- | :--------------: |
-| CPU      |       0.5        |
-| MEM      |      256Mi       |
-| DISK     |                  |
 
 Kubernetes search for nodes that has sufficient amount of resources to hold that container.
 
 When you specify the resource request for Containers in a Pod, the scheduler uses this information to decide which node to place the Pod on.
 
 ### Limits
-
-Kubernetes default limits:
-
-| Resource | Default limits |
-| -------- | :------------: |
-| CPU      |      0.5       |
-| MEM      |     256Mi      |
-| DISK     |                |
 
 What happens if a limit is exceeded ?
 

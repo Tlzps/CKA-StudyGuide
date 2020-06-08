@@ -1,130 +1,10 @@
+# CKA Curriculum Part 4 - Cluster
 
-**<span style="text-decoration:underline;">CKA Curriculum Part 4 - Cluster</span>**
-
-**<span style="text-decoration:underline;">Understand the Kubernetes cluster upgrade process</span>**
-
-Kubeadm is likely going to be the tool of choice to upgrade a Kubernetes cluster. Firstly, define the version you wish to upgrade to, or find the latest stable release:
-
-
-```
-export VERSION=$(curl -sSL https://dl.k8s.io/release/stable.txt)
-export ARCH=amd64
-```
-
-
-Download the latest version of kubeadm
-
-
-```
-curl -sSL https://dl.k8s.io/release/${VERSION}/bin/linux/${ARCH}/kubeadm > kubeadm
-```
-
-
-Install Kubeadm
-
-
-```
-sudo install -o root -g root -m 0755 ./kubeadm /usr/bin/kubeadm
-```
-
-Alternatively, use apt
-
-```
-apt-mark unhold kubeadm && \
-apt-get update && apt-get install -y kubeadm=1.14.x-00 && \
-apt-mark hold kubeadm
-```
-
-
-Then, execute a upgrade plan
-
-
-```
-sudo kubeadm upgrade plan
-
-Components that must be upgraded manually after you have upgraded the control plane with 'kubeadm upgrade apply':
-COMPONENT   CURRENT       AVAILABLE
-Kubelet     3 x v1.13.0   v1.14.1
-
-Upgrade to the latest stable version:
-
-COMPONENT            CURRENT   AVAILABLE
-API Server           v1.13.5   v1.14.1
-Controller Manager   v1.13.5   v1.14.1
-Scheduler            v1.13.5   v1.14.1
-Kube Proxy           v1.13.5   v1.14.1
-CoreDNS              1.2.6     1.3.1
-Etcd                 3.2.24    3.3.10
-
-You can now apply the upgrade by executing the following command:
-
-       kubeadm upgrade apply v1.14.1
-
-As the output implies, execute the kubeadm upgrade command (under root/sudo) to apply the changes
-
-linu
-[preflight] Running pre-flight checks.
-[upgrade] Making sure the cluster is healthy:
-[upgrade/config] Making sure the configuration is correct:
-[upgrade/config] Reading configuration from the cluster...
-[upgrade/config] FYI: You can look at this config file with 'kubectl -n kube-system get cm kubeadm-config -oyaml'
-[upgrade/version] You have chosen to change the cluster version to "v1.14.1"
-[upgrade/versions] Cluster version: v1.13.5
-[upgrade/versions] kubeadm version: v1.14.1
-[upgrade/confirm] Are you sure you want to proceed with the upgrade? [y/N]: y
-[upgrade/prepull] Will prepull images for components [kube-apiserver kube-controller-manager kube-scheduler etcd]
-[upgrade/prepull] Prepulling image for component etcd.
-```
-
-
-After which, kubeadm will start pulling down updated container images and deploy those to your cluster.
-
-If you run a kubectl get nodes on your cluster following a kubeadm upgrade apply command, you’ll notice that the version listed hasn’t changed:
-
-
-```
-NAME            STATUS   ROLES    AGE   VERSION
-k8s-master-03   Ready    master   22h   v1.13.0
-k8s-worker-03   Ready    <none>   22h   v1.13.0
-k8s-worker-04   Ready    <none>   22h   v1.13.0
-```
-
-
-Recall from the kubeadm upgrade command:
-
-
-```
-Components that must be upgraded manually after you have upgraded the control plane with 'kubeadm upgrade apply':
-COMPONENT   CURRENT       AVAILABLE
-Kubelet     3 x v1.13.0   v1.14.1
-```
-
-
-The version number from kubectl get nodes refers to the kubelet version. As the tool implies, you need to upgrade this manually.
-
-The following needs to be done on each node. Note the kubelet service needs restarting after the new binary has been implemented.
-
-
-```
-export VERSION=$(curl -sSL https://dl.k8s.io/release/stable.txt)
-export ARCH=amd64
-curl -sSL https://dl.k8s.io/release/${VERSION}/bin/linux/${ARCH}/kubelet > kubelet
-sudo install -o root -g root -m 0755 ./kubelet /usr/bin/kubelet
-sudo systemctl restart kubelet.service
-```
-
-Alternatively, use apt:
-```
-apt-mark unhold kubelet && \
-apt-get update && apt-get install -y kubelet=1.14.x-00 kubectl=1.14.x-00 && \
-apt-mark hold kubelet
-```
-**<span style="text-decoration:underline;">Facilitate Operating System Upgrades</span>**
+## Facilitate Operating System Upgrades
 
 Occasionally upgrades have to be made to the underlying host that’s facilitating your pods. To do this in a graceful way, we can do the following.
 
 Get a list of nodes running on which node
-
 
 ```
 kubectl get pods -o wide
@@ -140,9 +20,7 @@ pod/coredns-fb8b8dccf-hj5km evicted
 node/k8s-worker-04 evicted
 ```
 
-
 As we can see, the non daemonset pods have been evicted and the host has been cordoned. This will apply the “SchedulingDisabled” flag on the node
-
 
 ```
 kubectl get nodes
@@ -150,19 +28,15 @@ NAME        	STATUS
 k8s-worker-04   Ready,SchedulingDisabled
 ```
 
-
 At this point, complete the required maintenance activities. Even if you reboot, the node will still be in a “SchedulingDisabled” state.
 
 To release the node back to scheduling duties, uncordon the node:
-
 
 ```
 kubectl uncordon k8s-worker-04
 ```
 
-
 At which point it will be ready:
-
 
 ```
 kubectl get nodes
@@ -170,20 +44,157 @@ NAME        	STATUS
 k8s-worker-04   Ready
 ```
 
+## Kubernetes Releases
 
-**<span style="text-decoration:underline;">Implement backup and restore methodologies</span>**
+### Show current Kubernetes version
+
+```
+kubectl get nodes
+---
+NAME STATUS ROLES AGE VERSION 
+master Ready master 1d v1.11.3
+node-1 Ready <none> 1d v1.11.3
+node-2 Ready <none> 1d v1.11.3
+```
+
+Etcd and CoreDNS have their own versions
+
+## Understand the Kubernetes cluster upgrade process
+
+### Versioning
+
+No Kubernetes components can have a version higher than kube-apiserver. We will can this version X.
+
+| Layer |              Components             | Allowed versions |        Example        |
+|:-----:|:-----------------------------------:|:----------------:|:---------------------:|
+|   1   |            kube-apiserver           |         X        |         v1.10         |
+|   2   | controller-manager / kube-scheduler |        X-1       |     v1.9 or v1.10     |
+|   3   |         kubelet / kube-proxy        |        X-2       | v1.8 or v1.9 or v1.10 |
+
+kubectl can be at X+1, X or X-1
+
+### When should you upgrade ?
+
+Kubernetes supports the 3 latest minor versions.
+
+It is recommended to upgrade when minor version at a time. If you are in version v1.10 and want to upgrade to v1.12, you should upgrade to 1.11 first.
+
+### Upgrade process
+
+#### GKE
+
+Just click use the interface
+
+#### Kubeadm
+
+Kubeadm allows to plan and upgrade the cluster
+
+```
+kubeadm upgrade plan
+```
+
+```
+kubeadm upgrade apply
+```
+
+Upgrade the cluster has 2 major steps:
+* Upgrade the master nodes
+* Upgrade the worker nodes
+
+|   Role  | Version |
+|:-------:|:-------:|
+|  Master |  v1.10  |
+| Worker1 |  v1.10  |
+| Worker2 |  v1.10  |
+| Worker3 |  v1.10  |
+
+##### Upgrading the Master Node
+
+First you upgrade your master nodes and then upgrade the worker nodes while the master is being upgraded the control plane components such as the API server scheduler and controller managers go down briefly.
+
+The going down does not mean your work or nodes and applications on the cluster are impacted all workloads hosted on the worker nodes continue to serve users as normal.
+
+Since the Master is down all management functions are down you cannot access the cluster using kubectl or other Kubernetes API you cannot deploy new applications or delete or modify existing ones.
+The controller managers don't function either.
+
+If a pod was to fail a new pod won't be automatically created.
+
+But as long as the nodes and the pods are up your applications should be up and users will not be impacted.
+
+Once the upgrade is complete and the cluster is back up it should function normally.
+
+
+|   Role  | Version |
+|:-------:|:-------:|
+|  Master |  v1.11  |
+| Worker1 |  v1.10  |
+| Worker2 |  v1.10  |
+| Worker3 |  v1.10  |
+
+##### Upgrading the Worker Node
+
+Different strategy are available:
+* Upgrade all at once
+  * Issue is that your applications are no longer accessible
+  * Downtime
+* Upgrade one node at a time
+  * Move Pods on available nodes
+* Add new node to the cluster
+  * Provision new nodes, move Pods to the new node, then delete old nodes
+
+##### Full procedure
+
+1. `kubeadm upgrade plan` to have the current state of kubeadm and the cluster
+2. If needed, upgrade kubeadm to the desired version: 
+```
+apt-get upgrade -y kubeadm=1.12.0-00
+```
+3. `kubeadm upgrade apply v1.12.0`
+4. `kubectl get nodes` will still show the previous versions. This command show the version of kubelet
+5. Upgrade Kubelet on the master node:
+```
+apt-get upgrade -y kubelet=1.12.0-00
+systemctl restart kubelet
+```
+6. `kubectl get nodes` will now show that the master node is upgraded but not the worker nodes yet
+7. Upgrade Kubelet on the worker node:
+   1. Move the workload to another node with the `kubectl drain node-1` 
+   2. Upgrade kubelet `apt-get upgrade -y kubelet=1.12.0-00 && systemctl restart kubelet`
+   3. Make node schedulable again: `kubectl uncordon node-1`
+
+For kubelet and kubeadm you can also use the following commands:
+
+```
+apt-mark unhold kubeadm && \
+apt-get update && apt-get install -y kubeadm=1.14.x-00 && \
+apt-mark hold kubeadm
+```
+
+#### From scratch
+
+Each component must be upgraded manually.
+
+## Implement backup and restore methodologies
 
 In a Kubernetes cluster there are two main pieces of data that need backing up:
-
-
-
+*   Resource configuration
 *   Certificate Files
 *   Etcd database
 
-**Backing up certificate files**
+### Resource configuration
+
+Use declarative approach and store the files in a git respository.
+
+Or get current resource configurations:
+
+```
+kubectl get all --all-namespaces -o yaml > all-deploy-services.yaml
+```
+Warning: This will not save all resources.
+
+### Backing up certificate files
 
 Back up the /etc/kubernets/pki directory. This can also be done as a cronjob, and contains the following files:
-
 
 ```
 /etc/kubernetes/pki$ ls
@@ -203,24 +214,71 @@ etcd	front-proxy-client.crt
 Sa.pub
 ```
 
+### Backing up etcd
 
-**Backing up etcd**
-
-**Take a snapshot of the DB, then store it in a safe location**
-
+While configuring etcd, we specify a location where all the data will be stored, the data directory: `--data-dir=/var/lib/etcd`
 
 ```
-ETCDCTL_API=3 etcdctl snapshot save snapshot.db --cacert /etc/kubernetes/pki/etcd/server.crt --cert /etc/kubernetes/pki/etcd/ca.crt --key /etc/kubernetes/pki/etcd/ca.key
+ExecStart=/usr/local/bin/etcd \\
+--name ${ETCD_NAME} \\ 
+--cert-file=/etc/etcd/kubernetes.pem \\ 
+--key-file=/etc/etcd/kubernetes-key.pem \\ 
+--peer-cert-file=/etc/etcd/kubernetes.pem \\ 
+--peer-key-file=/etc/etcd/kubernetes-key.pem \\ 
+--trusted-ca-file=/etc/etcd/ca.pem \\ 
+--peer-trusted-ca-file=/etc/etcd/ca.pem \\ 
+--peer-client-cert-auth \\
+--client-cert-auth \\
+--initial-advertise-peer-urls https://${INTERNAL_IP}: 
+--listen-peer-urls https://${INTERNAL_IP}:2380 \\ 
+--listen-client-urls https://${INTERNAL_IP}:2379,http 
+--advertise-client-urls https://${INTERNAL_IP}:2379 \ 
+--initial-cluster-token etcd-cluster-0 \\ 
+--initial-cluster controller-0=https://${CONTROLLER0_ 
+--initial-cluster-state new \\
+--data-dir=/var/lib/etcd
 ```
 
+#### Take a snapshot of the DB, then store it in a safe location
 
-Verify the backup:
-
+##### Take a snapshot
 
 ```
-sudo ETCDCTL_API=3 etcdctl --write-out=table snapshot status snapshot.db
-+----------+----------+------------+------------+
-|   HASH   | REVISION | TOTAL KEYS | TOTAL SIZE |
-+----------+----------+------------+------------+
-| 2125d542 |   364069 |        770 |  	3.8 MB |
-+----------+----------+------------+------------+
+ETCDCTL_API=3 etcdctl snapshot save snapshot.db
+```
+
+##### View the status of the snapshot
+
+```
+ETCDCTL_API=3 etcdctl snapshot status snapshot.db
+```
+
+##### Restore the snapshot
+
+1. Stop the kube-apiserver: `service kube-apiserver stop`
+2. Restore
+```
+ETCDCTL_API=3 etcdctl \
+snapshot restore snapshot.db \ 
+--data-dir /var/lib/etcd-from-backup \ # new data location
+--initial-cluster master-1=https://192.168.5.11:2380,master-2=https://192.168.5.12:2380 \
+--initial-cluster-token etcd-cluster-1 \ # new name must be set. During a restore, etcd creates a new cluster with new members. 
+--initial-advertise-peer-urls https://${INTERNAL_IP}:2380
+```
+3. Reload the daemon: `systemctl daemon-reload`
+4. Restart etcd: `service etcd restart`
+5. Start kube-apiserver service: `service kube-apiserver start`
+
+##### Important note
+
+With all etcdctl commands, specify the following information
+
+```
+_API=3 etcdctl \
+snapshot save snapshot.db \
+--endpoints=https://127.0.0.1:2379 \ 
+--cacert=/etc/etcd/ca.crt \
+--cert=/etc/etcd/etcd-server.crt \ 
+--key=/etc/etcd/etcd-server.key
+```
+
